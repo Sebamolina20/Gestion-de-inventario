@@ -5,6 +5,8 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.swing.JOptionPane;
+
 public class producto_config {
     private Connection connection;
 
@@ -55,6 +57,20 @@ public class producto_config {
             e.printStackTrace();
         }
     }
+
+    public boolean productoYaExiste(String nombre, String serie) {
+    String sql = "SELECT COUNT(*) FROM productos WHERE nombre = ? AND serie = ?";
+    try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+        pstmt.setString(1, nombre);
+        pstmt.setString(2, serie);
+        try (ResultSet rs = pstmt.executeQuery()) {
+            return rs.getInt(1) > 0;
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+    return false;
+}
 
     // Método para actualizar un producto
     public void actualizarProducto(producto p) {
@@ -202,7 +218,6 @@ public class producto_config {
             e.printStackTrace();
         }
     }
-
     public boolean estaSerieDisponible(String nombreProducto, String numeroSerie) {
         Connection conn = null;
         PreparedStatement stmt = null;
@@ -210,7 +225,7 @@ public class producto_config {
     
         try {
             conn = DriverManager.getConnection("jdbc:sqlite:inventario.db");  // Ajusta si usas otra ruta
-            String sql = "SELECT estado FROM productos WHERE nombre = ? AND numero_serie = ?";
+            String sql = "SELECT estado FROM productos WHERE nombre = ? AND serie = ?";
             stmt = conn.prepareStatement(sql);
             stmt.setString(1, nombreProducto);
             stmt.setString(2, numeroSerie);
@@ -271,23 +286,110 @@ public class producto_config {
     }
     
     public String obtenerSerieDisponible(String nombreProducto) {
-        String serieDisponible = null;
-        String sql = "SELECT numero_serie FROM productos WHERE nombre = ? AND estado = 'Disponible' AND tipo = 'individual' LIMIT 1";
-        
-        try (PreparedStatement stmt = connection.prepareStatement(sql)) { // Usa la conexión existente
-            stmt.setString(1, nombreProducto);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    serieDisponible = rs.getString("numero_serie");
+    String serieDisponible = null;
+    String sql = "SELECT serie FROM productos WHERE nombre = ? AND estado = 'Disponible' AND tipo = 'individual' LIMIT 1";
+
+    try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+        stmt.setString(1, nombreProducto);
+        try (ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                serieDisponible = rs.getString("serie");
+            }
+        }
+    } catch (SQLException e) {
+        JOptionPane.showMessageDialog(null, "Error al obtener serie disponible: " + e.getMessage());
+    }
+
+    return serieDisponible;
+}    
+    public boolean verificarYAsignarProductoIndividual(String nombreProducto, String serie) {
+    String sqlVerificar = "SELECT estado FROM productos WHERE nombre = ? AND serie = ?";
+    String sqlActualizar = "UPDATE productos SET estado = 'Prestado' WHERE nombre = ? AND serie = ?";
+
+    try (PreparedStatement verificarStmt = connection.prepareStatement(sqlVerificar)) {
+        verificarStmt.setString(1, nombreProducto);
+        verificarStmt.setString(2, serie);
+        ResultSet rs = verificarStmt.executeQuery();
+
+        if (rs.next()) {
+            String estado = rs.getString("estado");
+            if ("Disponible".equalsIgnoreCase(estado)) {
+                try (PreparedStatement actualizarStmt = connection.prepareStatement(sqlActualizar)) {
+                    actualizarStmt.setString(1, nombreProducto);
+                    actualizarStmt.setString(2, serie);
+                    actualizarStmt.executeUpdate();
+                    return true; // Éxito
+                }
+            } else {
+                System.out.println("Producto con esa serie ya está prestado.");
+                return false;
+            }
+        } else {
+            System.out.println("No se encontró el producto con esa serie.");
+            return false;
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+        return false;
+    }
+}
+
+    public boolean asignarProductoPorSerie(String nombreProducto, String serie) {
+    String sqlVerificar = "SELECT estado FROM productos WHERE nombre = ? AND serie = ?";
+    String sqlActualizar = "UPDATE productos SET estado = 'Prestado' WHERE nombre = ? AND serie = ?";
+
+    try (PreparedStatement stmtVerificar = connection.prepareStatement(sqlVerificar)) {
+        stmtVerificar.setString(1, nombreProducto);
+        stmtVerificar.setString(2, serie);
+        ResultSet rs = stmtVerificar.executeQuery();
+
+        if (rs.next()) {
+            String estado = rs.getString("estado");
+            if ("Disponible".equalsIgnoreCase(estado)) {
+                try (PreparedStatement stmtActualizar = connection.prepareStatement(sqlActualizar)) {
+                    stmtActualizar.setString(1, nombreProducto);
+                    stmtActualizar.setString(2, serie);
+                    stmtActualizar.executeUpdate();
+                    return true;
                 }
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
-        
-        return serieDisponible;
-    }    
-    
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+    return false; // Si no se pudo asignar
+}
+public static String obtenerTipoProducto(String nombreProducto) {
+    String tipo = null;
+    String sql = "SELECT tipo FROM productos WHERE nombre = ?";
+
+    try (Connection conn = DriverManager.getConnection("jdbc:sqlite:inventario.db");
+         PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setString(1, nombreProducto);
+        try (ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                tipo = rs.getString("tipo");
+            }
+        }
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+
+    return tipo;
+}
+
+public void actualizarEstadoProductoSerie(String nombreProducto, String serie, String estado) {
+    try (Connection conn = DriverManager.getConnection("jdbc:sqlite:inventario.db");
+         PreparedStatement stmt = conn.prepareStatement(
+            "UPDATE productos SET estado = ? WHERE nombre = ? AND serie = ?")) {
+        stmt.setString(1, estado);
+        stmt.setString(2, nombreProducto);
+        stmt.setString(3, serie);
+        stmt.executeUpdate();
+    } catch (SQLException e) {
+        e.printStackTrace();
+    }
+}
     public void cerrarConexion() {
         try {
             if (connection != null) {

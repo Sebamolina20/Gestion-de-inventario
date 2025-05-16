@@ -1,36 +1,40 @@
 package modelo;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-
 public class asignacion {
     private int id;
     private String nombreProfesor;
     private String producto;
     private int cantidad;
     private String fechaHora;
+    private String serie;  // Agregamos el campo serie
 
-    // Constructor con ID y fechaHora
+    // Constructor con los parámetros necesarios
     public asignacion(int id, String nombreProfesor, String producto, int cantidad, String fechaHora) {
         this.id = id;
         this.nombreProfesor = nombreProfesor;
         this.producto = producto;
         this.cantidad = cantidad;
         this.fechaHora = fechaHora;
+        this.serie = null;  // Inicializamos la serie como null por defecto
     }
 
-    // Constructor sin ID (útil para insertar nuevos datos)
-    // Establecer la fecha y hora actual cuando se crea la asignación
-    public asignacion(String nombreProfesor, String producto, int cantidad) {
+    // Constructor con todos los parámetros, incluyendo serie
+    public asignacion(int id, String nombreProfesor, String producto, int cantidad, String fechaHora, String serie) {
+        this.id = id;
         this.nombreProfesor = nombreProfesor;
         this.producto = producto;
         this.cantidad = cantidad;
-        this.fechaHora = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"));
+        this.fechaHora = fechaHora;
+        this.serie = serie;  // Asignamos la serie si está presente
     }
 
-    // Getters y Setters
+    // Métodos getter y setter
     public int getId() {
         return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
     }
 
     public String getNombreProfesor() {
@@ -64,7 +68,16 @@ public class asignacion {
     public void setFechaHora(String fechaHora) {
         this.fechaHora = fechaHora;
     }
+
+    public String getSerie() {
+        return serie;
+    }
+
+    public void setSerie(String serie) {
+        this.serie = serie;
+    }
 }
+
 
 
 

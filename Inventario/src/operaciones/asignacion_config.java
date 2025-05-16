@@ -25,7 +25,8 @@ public class asignacion_config {
                                   "nombreProfesor TEXT NOT NULL, " +
                                   "producto TEXT NOT NULL, " +
                                   "cantidad INTEGER NOT NULL, " +
-                                  "fechaHora TEXT NOT NULL)";  // Agregar la columna fechaHora
+                                  "fechaHora TEXT NOT NULL, " +
+                                  "serie TEXT)";  // Agregar la columna serie
         // Crear la tabla de ids eliminadas si no existe
         String sqlIdsEliminadas = "CREATE TABLE IF NOT EXISTS ids_asignaciones_eliminadas (" +
                                   "id INTEGER PRIMARY KEY)";
@@ -41,36 +42,40 @@ public class asignacion_config {
     public synchronized void insertarAsignacion(asignacion a) {
         int idAsignacion = obtenerIdDisponible();  // Intentamos obtener una ID reutilizable
     
-        // 🔸 Obtener la fecha y hora actual en formato dd-MM-yy HH:mm
+        // Obtener la fecha y hora actual en formato dd-MM-yy HH:mm
         String fechaHoraActual = new java.text.SimpleDateFormat("dd-MM-yy HH:mm").format(new java.util.Date());
-    
-        // 🔸 Ahora agregamos fechaHora al INSERT
-        String sql = "INSERT INTO asignaciones (id, nombreProfesor, producto, cantidad, fechaHora) VALUES (?, ?, ?, ?, ?)";
+
+        // Si el producto tiene serie, asignarla; si no, se queda en null
+        String serie = a.getSerie() != null ? a.getSerie() : null;
+
+        // Insertar la asignación, incluyendo la serie
+        String sql = "INSERT INTO asignaciones (id, nombreProfesor, producto, cantidad, fechaHora, serie) VALUES (?, ?, ?, ?, ?, ?)";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setInt(1, idAsignacion);
             pstmt.setString(2, a.getNombreProfesor());
             pstmt.setString(3, a.getProducto());
             pstmt.setInt(4, a.getCantidad());
-            pstmt.setString(5, fechaHoraActual); // Nueva línea para insertar fecha y hora
+            pstmt.setString(5, fechaHoraActual); // Fecha y hora
+            pstmt.setString(6, serie);  // Serie (puede ser null)
             pstmt.executeUpdate();
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    // Método para actualizar una asignación
-    // Método para actualizar una asignación (incluyendo fechaHora)
-public void actualizarAsignacion(asignacion a) {
-    String sql = "UPDATE asignaciones SET nombreProfesor = ?, producto = ?, cantidad = ?, fechaHora = ? WHERE id = ?";
-    try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+    // Método para actualizar una asignación (incluyendo fechaHora y serie)
+    public boolean actualizarAsignacion(Connection conn, asignacion a) throws SQLException {
+    String sql = "UPDATE asignaciones SET nombreProfesor = ?, producto = ?, cantidad = ?, fechaHora = ?, serie = ? WHERE id = ?";
+    try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
         pstmt.setString(1, a.getNombreProfesor());
         pstmt.setString(2, a.getProducto());
         pstmt.setInt(3, a.getCantidad());
-        pstmt.setString(4, a.getFechaHora()); // Aquí actualizas la fecha y hora
-        pstmt.setInt(5, a.getId());
-        pstmt.executeUpdate();
-    } catch (SQLException e) {
-        e.printStackTrace();
+        pstmt.setString(4, a.getFechaHora());
+        pstmt.setString(5, a.getSerie());
+        pstmt.setInt(6, a.getId());
+
+        int filas = pstmt.executeUpdate();
+        return filas > 0;
     }
 }
 
@@ -91,7 +96,7 @@ public void actualizarAsignacion(asignacion a) {
     // Método para obtener todos los registros de asignaciones
     public List<asignacion> obtenerTodasLasAsignaciones() {
         List<asignacion> asignaciones = new ArrayList<>();
-        String sql = "SELECT id, nombreProfesor, producto, cantidad, fechaHora FROM asignaciones";
+        String sql = "SELECT id, nombreProfesor, producto, cantidad, fechaHora, serie FROM asignaciones";
         try (Statement stmt = connection.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
@@ -100,7 +105,9 @@ public void actualizarAsignacion(asignacion a) {
                 String producto = rs.getString("producto");
                 int cantidad = rs.getInt("cantidad");
                 String fechaHora = rs.getString("fechaHora");  // Obtener la fecha y hora
-                asignacion a = new asignacion(id, nombreProfesor, producto, cantidad, fechaHora); // Crear la asignación con fechaHora
+                String serie = rs.getString("serie");  // Obtener la serie
+                asignacion a = new asignacion(id, nombreProfesor, producto, cantidad, fechaHora);
+                a.setSerie(serie);  // Asignar la serie
                 asignaciones.add(a);
             }
         } catch (SQLException e) {
@@ -108,7 +115,6 @@ public void actualizarAsignacion(asignacion a) {
         }
         return asignaciones;
     }
-    
 
     // Método para obtener una ID disponible reutilizable de la tabla ids_asignaciones_eliminadas
     private int obtenerIdDisponible() {
@@ -149,6 +155,23 @@ public void actualizarAsignacion(asignacion a) {
         }
     }
 
+    public boolean verificarAsignacionExistente(String producto, String serie) {
+    boolean existe = false;
+    String sql = "SELECT COUNT(*) FROM asignaciones WHERE producto = ? AND serie = ?";
+    try (PreparedStatement pst = connection.prepareStatement(sql)) {
+        pst.setString(1, producto);
+        pst.setString(2, serie);
+        ResultSet rs = pst.executeQuery();
+        if (rs.next() && rs.getInt(1) > 0) {
+            existe = true;
+        }
+    } catch (SQLException e) {
+        System.out.println("Error al verificar asignación: " + e);
+    }
+    return existe;
+}
+
+
     // Método para obtener un nuevo ID para las asignaciones si no se encuentra un ID disponible
     private int obtenerNuevoId() {
         String sql = "SELECT MAX(id) FROM asignaciones";
@@ -173,5 +196,6 @@ public void actualizarAsignacion(asignacion a) {
         }
     }
 }
+
 
 

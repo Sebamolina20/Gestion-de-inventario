@@ -34,9 +34,15 @@ public class AsignacionUI extends JFrame {
 
     private void configurarTabla() {
         tableModel = new DefaultTableModel(
-            new Object[]{"ID", "Nombre Profesor", "Producto", "Cantidad", "Fecha y Hora"}, 0
+            new Object[]{"ID", "Nombre Profesor", "Producto", "Cantidad", "Fecha y Hora", "Serie"}, 0
         );
         table = new JTable(tableModel);
+
+        table.getColumnModel().getColumn(5).setMinWidth(0);
+        table.getColumnModel().getColumn(5).setMaxWidth(0);
+        table.getColumnModel().getColumn(5).setWidth(0);
+        table.getColumnModel().getColumn(5).setPreferredWidth(0);
+
         JScrollPane scrollPane = new JScrollPane(table);
         add(scrollPane, BorderLayout.CENTER);
     }
@@ -153,23 +159,26 @@ public class AsignacionUI extends JFrame {
                 a.getNombreProfesor(),
                 a.getProducto(),
                 a.getCantidad(),
-                a.getFechaHora()  // Se muestra automáticamente, ya que se asigna en el momento de la creación
+                a.getFechaHora(),
+                a.getSerie(),  // Se muestra automáticamente, ya que se asigna en el momento de la creación
             });
         }
     }    
 
     private void abrirDialogoAgregar() {
     JDialog dialog = new JDialog(this, "Agregar Asignación", true);
-    dialog.setSize(300, 200);
+    dialog.setSize(350, 250);
     dialog.setLocationRelativeTo(this);
-    dialog.setLayout(new GridLayout(4, 2));
+    dialog.setLayout(new GridLayout(6, 2, 5, 5)); // Más espacio entre componentes
 
     JTextField campoNombreProfesor = new JTextField();
     JComboBox<String> comboProducto = new JComboBox<>();
     JTextField campoCantidad = new JTextField();
+    JComboBox<String> comboSerie = new JComboBox<>();  // <-- cambio aquí
+
     ((AbstractDocument) campoCantidad.getDocument()).setDocumentFilter(new IntegerFilter());
 
-    // Llenar combo con productos
+    // Cargar productos en combo box
     List<String> productos = producto_config.obtenerNombresProductos();
     for (String nombre : productos) {
         comboProducto.addItem(nombre);
@@ -177,10 +186,188 @@ public class AsignacionUI extends JFrame {
 
     dialog.add(new JLabel("Nombre Profesor:"));
     dialog.add(campoNombreProfesor);
+
     dialog.add(new JLabel("Producto:"));
     dialog.add(comboProducto);
+
     dialog.add(new JLabel("Cantidad:"));
     dialog.add(campoCantidad);
+
+    dialog.add(new JLabel("Serie:"));
+    dialog.add(comboSerie);
+
+    JButton btnGuardar = new JButton("Guardar");
+    JButton btnCancelar = new JButton("Cancelar");
+    dialog.add(btnGuardar);
+    dialog.add(btnCancelar);
+
+    comboSerie.setEnabled(false);  // deshabilitado al inicio
+    campoCantidad.setEnabled(true);
+
+    comboProducto.addActionListener(e -> {
+        String productoSeleccionado = (String) comboProducto.getSelectedItem();
+        comboSerie.removeAllItems();
+
+        if (productoSeleccionado != null) {
+            String tipo = producto_config.obtenerTipoProducto(productoSeleccionado);
+
+            if ("individual".equalsIgnoreCase(tipo)) {
+                comboSerie.setEnabled(true);
+                campoCantidad.setText("1");
+                campoCantidad.setEnabled(false);
+
+                List<String> seriesDisponibles = asignacion_manager.obtenerSeriesDisponibles(productoSeleccionado);
+                if (seriesDisponibles != null && !seriesDisponibles.isEmpty()) {
+                    for (String serie : seriesDisponibles) {
+                        comboSerie.addItem(serie);
+                    }
+                } else {
+                    // Opcional: mostrar mensaje o dejar combo vacío
+                    JOptionPane.showMessageDialog(dialog, "No hay series disponibles para este producto.");
+                }
+            } else {
+                comboSerie.setEnabled(false);
+                campoCantidad.setText("");
+                campoCantidad.setEnabled(true);
+            }
+        }
+    });
+
+    btnGuardar.addActionListener(ev -> {
+        String nombreProfesor = campoNombreProfesor.getText().trim();
+        String producto = (String) comboProducto.getSelectedItem();
+        String cantidadStr = campoCantidad.getText().trim();
+        String serie = null;
+
+        if (producto_config.obtenerTipoProducto(producto).equalsIgnoreCase("individual")) {
+            serie = (String) comboSerie.getSelectedItem();
+        }
+
+        if (nombreProfesor.isEmpty() || producto == null || cantidadStr.isEmpty() || 
+            (producto_config.obtenerTipoProducto(producto).equalsIgnoreCase("individual") && (serie == null || serie.isEmpty()))) {
+            JOptionPane.showMessageDialog(dialog, "Todos los campos son obligatorios.");
+            return;
+        }
+
+        try {
+            int cantidad = Integer.parseInt(cantidadStr);
+            String fechaHora = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"));
+            String tipo = producto_config.obtenerTipoProducto(producto);
+
+            if ("individual".equalsIgnoreCase(tipo)) {
+                boolean disponible = asignacion_manager.esProductoIndividualDisponible(producto, serie);
+                if (!disponible) {
+                    JOptionPane.showMessageDialog(dialog, "Esta serie ya está asignada.");
+                    return;
+                }
+                asignacion nueva = new asignacion(0, nombreProfesor, producto, 1, fechaHora, serie);
+                asignacion_manager.agregarAsignacion(nueva);
+            } else {
+                boolean disponible = asignacion_manager.esProductoDisponible(producto, cantidad);
+                if (!disponible) {
+                    JOptionPane.showMessageDialog(dialog, "No hay suficiente stock.");
+                    return;
+                }
+                asignacion nueva = new asignacion(0, nombreProfesor, producto, cantidad, fechaHora, null);
+                asignacion_manager.agregarAsignacion(nueva);
+            }
+
+            cargarAsignaciones();
+            dialog.dispose();
+
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(dialog, "La cantidad debe ser un número entero.");
+        }
+    });
+
+    btnCancelar.addActionListener(ev -> dialog.dispose());
+
+    dialog.setVisible(true);
+}
+
+
+private void modificarAsignacion() {
+    int fila = table.getSelectedRow();
+    if (fila == -1) {
+        JOptionPane.showMessageDialog(this, "Seleccione una fila para modificar.");
+        return;
+    }
+
+    int id = (int) table.getValueAt(fila, 0);
+    String nombreProfesor = (String) table.getValueAt(fila, 1);
+    String producto = (String) table.getValueAt(fila, 2);
+    int cantidad = (int) table.getValueAt(fila, 3);
+    String serie = (String) table.getValueAt(fila, 5);  // columna 5 = serie
+
+    JDialog dialog = new JDialog(this, "Modificar Asignación", true);
+    dialog.setSize(350, 250);
+    dialog.setLocationRelativeTo(this);
+    dialog.setLayout(new GridLayout(6, 2, 5, 5));
+
+    JTextField campoNombreProfesor = new JTextField(nombreProfesor);
+    JComboBox<String> comboProducto = new JComboBox<>();
+    JTextField campoCantidad = new JTextField(String.valueOf(cantidad));
+    JComboBox<String> comboSerie = new JComboBox<>();
+
+    ((AbstractDocument) campoCantidad.getDocument()).setDocumentFilter(new IntegerFilter());
+
+    // Cargar productos en comboProducto
+    List<String> productos = producto_config.obtenerNombresProductos();
+    for (String nombre : productos) {
+        comboProducto.addItem(nombre);
+    }
+    comboProducto.setSelectedItem(producto);
+
+    Runnable actualizarCampos = () -> {
+        String productoSel = (String) comboProducto.getSelectedItem();
+        if (productoSel == null) return;
+
+        String tipo = producto_config.obtenerTipoProducto(productoSel);
+
+        if ("individual".equalsIgnoreCase(tipo)) {
+            comboSerie.setEnabled(true);
+            campoCantidad.setText("1");
+            campoCantidad.setEnabled(false);
+
+            List<String> seriesDisponibles = asignacion_manager.obtenerSeriesDisponibles(productoSel);
+
+            // Agregar la serie actual si no está en la lista para que pueda seleccionarse
+            if (serie != null && !serie.isEmpty() && !seriesDisponibles.contains(serie)) {
+                seriesDisponibles.add(0, serie);
+            }
+
+            comboSerie.removeAllItems();
+            for (String s : seriesDisponibles) {
+                comboSerie.addItem(s);
+            }
+            comboSerie.setSelectedItem(serie);
+
+        } else {
+            comboSerie.removeAllItems();
+            comboSerie.setEnabled(false);
+            campoCantidad.setEnabled(true);
+            campoCantidad.setText(String.valueOf(cantidad));
+        }
+    };
+
+    actualizarCampos.run();
+
+    comboProducto.addActionListener(e -> {
+        // Al cambiar el producto, actualizar comboSerie y cantidad
+        actualizarCampos.run();
+    });
+
+    dialog.add(new JLabel("Nombre Profesor:"));
+    dialog.add(campoNombreProfesor);
+
+    dialog.add(new JLabel("Producto:"));
+    dialog.add(comboProducto);
+
+    dialog.add(new JLabel("Cantidad:"));
+    dialog.add(campoCantidad);
+
+    dialog.add(new JLabel("Serie:"));
+    dialog.add(comboSerie);
 
     JButton btnGuardar = new JButton("Guardar");
     JButton btnCancelar = new JButton("Cancelar");
@@ -189,123 +376,59 @@ public class AsignacionUI extends JFrame {
     dialog.add(btnCancelar);
 
     btnGuardar.addActionListener(ev -> {
-        String nombreProfesor = campoNombreProfesor.getText().trim();
-        String producto = (String) comboProducto.getSelectedItem();
+        String nombreProfesorModificado = campoNombreProfesor.getText().trim();
+        String productoSeleccionado = (String) comboProducto.getSelectedItem();
         String cantidadStr = campoCantidad.getText().trim();
-    
-        if (!nombreProfesor.isEmpty() && producto != null && !cantidadStr.isEmpty()) {
-            try {
-                int cantidad = Integer.parseInt(cantidadStr);
-    
-                // Obtener la fecha y hora actual
-                String fechaHora = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"));
-    
-                // Verificar si el producto es individual y ya está prestado
-                boolean productoDisponible = asignacion_manager.esProductoDisponible(producto);
-    
-                if (productoDisponible) {
-                    // Crear el objeto asignacion si el producto está disponible
-                    asignacion nuevaAsignacion = new asignacion(0, nombreProfesor, producto, cantidad, fechaHora);  // Crear el objeto asignacion
-                    asignacion_manager.agregarAsignacion(nuevaAsignacion);  // Pasar el objeto
-                    cargarAsignaciones();  // Cargar las asignaciones nuevamente
-                    dialog.dispose();  // Cerrar el diálogo
-                } else {
-                    // Si el producto está prestado, mostrar el mensaje
-                    JOptionPane.showMessageDialog(dialog, "El producto ya está prestado y no puede ser asignado.");
-                }
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(dialog, "La cantidad debe ser un número entero.");
-            }
-        } else {
+        String serieModificada = (String) comboSerie.getSelectedItem();
+
+        if (nombreProfesorModificado.isEmpty() || productoSeleccionado == null || cantidadStr.isEmpty() ||
+            ("individual".equalsIgnoreCase(producto_config.obtenerTipoProducto(productoSeleccionado)) &&
+             (serieModificada == null || serieModificada.isEmpty()))) {
             JOptionPane.showMessageDialog(dialog, "Todos los campos son obligatorios.");
+            return;
+        }
+
+        try {
+            int cantidadModificada = Integer.parseInt(cantidadStr);
+            String nuevaFechaHora = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"));
+            String tipo = producto_config.obtenerTipoProducto(productoSeleccionado);
+
+            if ("individual".equalsIgnoreCase(tipo)) {
+                if (!serieModificada.equals(serie)) {
+                    boolean disponible = asignacion_manager.esProductoIndividualDisponible(productoSeleccionado, serieModificada);
+                    if (!disponible) {
+                        JOptionPane.showMessageDialog(dialog, "Esta serie ya está asignada.");
+                        return;
+                    }
+                }
+                // Cantidad siempre 1 para individual
+                cantidadModificada = 1;
+
+                asignacion asignacionModificada = new asignacion(id, nombreProfesorModificado, productoSeleccionado, cantidadModificada, nuevaFechaHora, serieModificada);
+                asignacion_manager.modificarAsignacion(asignacionModificada);
+            } else {
+                boolean disponible = asignacion_manager.esProductoDisponible(productoSeleccionado, cantidadModificada);
+                if (!disponible) {
+                    JOptionPane.showMessageDialog(dialog, "No hay suficiente stock.");
+                    return;
+                }
+
+                asignacion asignacionModificada = new asignacion(id, nombreProfesorModificado, productoSeleccionado, cantidadModificada, nuevaFechaHora, null);
+                asignacion_manager.modificarAsignacion(asignacionModificada);
+            }
+
+            cargarAsignaciones();
+            dialog.dispose();
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(dialog, "La cantidad debe ser un número entero.");
         }
     });
-    
+
     btnCancelar.addActionListener(ev -> dialog.dispose());
-    
-    dialog.setVisible(true);    
+
+    dialog.setVisible(true);
 }
-private void modificarAsignacion() {
-    int fila = table.getSelectedRow();
-    if (fila != -1) {
-        // Obtener los valores de la fila seleccionada
-        int id = (int) table.getValueAt(fila, 0);
-        String nombreProfesor = (String) table.getValueAt(fila, 1);
-        String producto = (String) table.getValueAt(fila, 2);
-        int cantidad = (int) table.getValueAt(fila, 3);
 
-        // Crear un cuadro de diálogo para modificar la asignación
-        JDialog dialog = new JDialog(this, "Modificar Asignación", true);
-        dialog.setSize(300, 200);
-        dialog.setLocationRelativeTo(this);
-        dialog.setLayout(new GridLayout(4, 2));
-
-        JTextField campoNombreProfesor = new JTextField(nombreProfesor);
-        JComboBox<String> comboProducto = new JComboBox<>();
-        JTextField campoCantidad = new JTextField(String.valueOf(cantidad));
-        ((AbstractDocument) campoCantidad.getDocument()).setDocumentFilter(new IntegerFilter());
-
-        // Llenar combo con productos
-        List<String> productos = producto_config.obtenerNombresProductos();
-        for (String nombre : productos) {
-            comboProducto.addItem(nombre);
-        }
-
-        // Seleccionar el producto previamente asignado
-        comboProducto.setSelectedItem(producto);
-
-        dialog.add(new JLabel("Nombre Profesor:"));
-        dialog.add(campoNombreProfesor);
-        dialog.add(new JLabel("Producto:"));
-        dialog.add(comboProducto);
-        dialog.add(new JLabel("Cantidad:"));
-        dialog.add(campoCantidad);
-
-        JButton btnGuardar = new JButton("Guardar");
-        JButton btnCancelar = new JButton("Cancelar");
-
-        dialog.add(btnGuardar);
-        dialog.add(btnCancelar);
-
-        // Acción del botón "Guardar"
-        btnGuardar.addActionListener(ev -> {
-            String nombreProfesorModificado = campoNombreProfesor.getText().trim();
-            String productoSeleccionado = (String) comboProducto.getSelectedItem();
-            String cantidadStr = campoCantidad.getText().trim();
-
-            if (!nombreProfesorModificado.isEmpty() && productoSeleccionado != null && !cantidadStr.isEmpty()) {
-                try {
-                    int cantidadModificada = Integer.parseInt(cantidadStr);
-
-                    // Actualizar la fecha con la hora actual si es necesario.
-                    String nuevaFechaHora = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"));
-
-                    // Crear el objeto asignacion con los nuevos valores, incluyendo la nueva fecha
-                    asignacion asignacionModificada = new asignacion(id, nombreProfesorModificado, productoSeleccionado, cantidadModificada, nuevaFechaHora);
-
-                    // Llamar al método de modificación
-                    asignacion_manager.modificarAsignacion(asignacionModificada);
-
-                    // Actualizar la tabla
-                    cargarAsignaciones();
-                    dialog.dispose(); // Cerrar el cuadro de diálogo
-                } catch (NumberFormatException ex) {
-                    JOptionPane.showMessageDialog(dialog, "La cantidad debe ser un número entero.");
-                }
-            } else {
-                JOptionPane.showMessageDialog(dialog, "Todos los campos son obligatorios.");
-            }
-        });
-
-        // Acción del botón "Cancelar"
-        btnCancelar.addActionListener(ev -> dialog.dispose());
-
-        dialog.setVisible(true);
-    } else {
-        JOptionPane.showMessageDialog(this, "Seleccione una fila para modificar.");
-    }
-}
-    
     private void eliminarAsignacion() {
         int fila = table.getSelectedRow();
         if (fila != -1) {
@@ -333,7 +456,6 @@ private void modificarAsignacion() {
         SwingUtilities.invokeLater(() -> new AsignacionUI().setVisible(true));
     }
     
-
 }
 
 
